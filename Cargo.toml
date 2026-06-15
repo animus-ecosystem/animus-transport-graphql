@@ -11,11 +11,11 @@ name = "animus-transport-graphql"
 path = "src/main.rs"
 
 [dependencies]
-animus-plugin-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
-animus-transport-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10", features = ["client"] }
-animus-plugin-runtime = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
-animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.1.10" }
+animus-plugin-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
+animus-transport-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12", features = ["client"] }
+animus-plugin-runtime = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
+animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
 
 async-graphql = { version = "7", features = ["chrono"] }
 async-graphql-axum = "7"
