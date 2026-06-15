@@ -10,8 +10,10 @@ This plugin runs as a standalone Animus `transport_backend` and translates
 inbound GraphQL operations into control RPCs against the local daemon over
 the control socket. The wire shape from
 [`animus-control-protocol`](https://github.com/launchapp-dev/animus-protocol)
-is adopted directly as the canonical GraphQL contract — there is no
-rich-vs-lean split.
+is mirrored faithfully into the GraphQL schema — the GraphQL types are a
+1:1 projection of the control-wire request/response shapes (`Subject`,
+`WorkflowRun`, `QueueEntry`/`QueueStats`, `DaemonStatus`/`DaemonHealth`,
+`PluginInfo`), so the schema is the canonical contract for the web UI.
 
 ## Endpoints
 
@@ -27,16 +29,26 @@ Default port: **8081** (HTTP transport occupies 8080).
 
 ## Schema coverage
 
-**Queries:** `workflows`, `workflow(id)`, `queue`, `plugin`, `daemon`,
-`subject`, `agent`.
+**Queries:** `workflows`, `workflow(id)`, `queue`, `queueStats`, `plugin`,
+`pluginInfo`, `pluginSearch`, `pluginBrowse`, `daemon`, `daemonHealth`,
+`daemonAgents`, `subject`, `subjectById`, `subjectNext`.
 
-**Mutations:** `runWorkflow`, `pauseWorkflow`, `resumeWorkflow`,
-`cancelWorkflow`, `enqueue`, `dropQueue`, `holdQueue`, `releaseQueue`,
-`reorderQueue`, `installPlugin`, `uninstallPlugin`, `createSubject`,
-`updateSubject`.
+**Mutations:** `runWorkflow`, `executeWorkflow`, `pauseWorkflow`,
+`resumeWorkflow`, `cancelWorkflow`, `enqueue`, `dropQueue`, `holdQueue`,
+`releaseQueue`, `reorderQueue`, `installPlugin`, `uninstallPlugin`,
+`pingPlugin`, `updatePlugins`, `createSubject`, `updateSubject`,
+`setSubjectStatus`, `startDaemon`.
 
 **Subscriptions:** `workflowEvents`, `daemonEvents`, `subjectChanged`
 (streamed through control wire notification RPCs).
+
+Agent-execution RPCs (`agent/run`, `agent/status`, `agent/cancel`) and the
+removed project surface are intentionally **not** exposed — the kernel
+returns `NotSupported` for agent execution over the control socket, and
+agents run in-process / CLI-only. `daemonAgents` still surfaces the
+read-only roster of active agent sessions from `daemon/agents`.
+`daemon/stop` and `daemon/restart` are also omitted (kernel-forbidden over
+control).
 
 ## Build
 

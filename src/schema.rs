@@ -11,7 +11,6 @@ use async_graphql::{EmptySubscription, MergedObject, MergedSubscription, Schema}
 use crate::{
     config::GraphqlConfig,
     resolvers::{
-        agent::{AgentMutation, AgentQuery},
         daemon::{DaemonEventsSubscription, DaemonMutation, DaemonQuery},
         plugin::{PluginMutation, PluginQuery},
         queue::{QueueMutation, QueueQuery},
@@ -27,7 +26,6 @@ pub struct QueryRoot(
     PluginQuery,
     DaemonQuery,
     SubjectQuery,
-    AgentQuery,
 );
 
 #[derive(MergedObject, Default)]
@@ -37,7 +35,6 @@ pub struct MutationRoot(
     PluginMutation,
     DaemonMutation,
     SubjectMutation,
-    AgentMutation,
 );
 
 #[derive(MergedSubscription, Default)]

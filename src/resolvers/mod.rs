@@ -7,7 +7,6 @@
 //! All resolvers go through `animus_control_protocol::client::ControlClient`
 //! — there is no direct daemon-state access from the GraphQL layer.
 
-pub mod agent;
 pub mod daemon;
 pub mod plugin;
 pub mod queue;

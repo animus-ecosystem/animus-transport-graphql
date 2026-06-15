@@ -35,22 +35,67 @@ async fn introspection_includes_required_roots() {
     let sdl = schema.sdl();
 
     for needle in [
+        // Roots
         "type QueryRoot",
         "type MutationRoot",
+        // Rich domain types
+        "type Subject",
+        "type SubjectAttachment",
+        "enum SubjectStatus",
+        "type Workflow",
+        "type WorkflowRunStart",
+        "enum WorkflowStatus",
+        "type QueueEntry",
+        "type QueueStats",
+        "enum QueueState",
+        "type DaemonStatus",
+        "type DaemonHealth",
+        "type PluginHealth",
+        "type DaemonAgent",
+        "enum HealthStatus",
+        "type Plugin",
+        "type PluginRegistryEntry",
+        // Key Subject fields (drift guard)
+        "nativeStatus",
+        "statusMetadata",
+        "attachments",
+        // Queries
         "workflows",
         "queue",
+        "queueStats",
         "plugin",
+        "pluginSearch",
         "daemon",
+        "daemonHealth",
+        "daemonAgents",
         "subject",
-        "agent",
+        "subjectNext",
+        // Mutations
         "runWorkflow",
+        "executeWorkflow",
         "enqueue",
         "installPlugin",
         "createSubject",
+        "setSubjectStatus",
+        "startDaemon",
     ] {
         assert!(
             sdl.contains(needle),
             "schema SDL missing expected fragment: {needle}\n--- SDL ---\n{sdl}"
+        );
+    }
+
+    // Dropped surfaces must NOT appear (agent + project cruft).
+    for forbidden in [
+        "type Agent ",
+        "enableAgent",
+        "disableAgent",
+        "Project",
+        "agentRun",
+    ] {
+        assert!(
+            !sdl.contains(forbidden),
+            "schema SDL contains forbidden fragment: {forbidden}\n--- SDL ---\n{sdl}"
         );
     }
 }
@@ -58,7 +103,9 @@ async fn introspection_includes_required_roots() {
 #[tokio::test]
 async fn workflows_query_surfaces_connection_error_without_daemon() {
     let schema = build_schema_no_subs(cfg());
-    let res = schema.execute("{ workflows { id name status } }").await;
+    let res = schema
+        .execute("{ workflows { id definition status } }")
+        .await;
     assert!(
         !res.errors.is_empty(),
         "expected control-socket error, got data: {:?}",
@@ -75,7 +122,7 @@ async fn workflows_query_surfaces_connection_error_without_daemon() {
 async fn queue_query_surfaces_connection_error_without_daemon() {
     let schema = build_schema_no_subs(cfg());
     let res = schema
-        .execute("{ queue { id taskId workflow priority state } }")
+        .execute("{ queue { id taskId priority state } }")
         .await;
     assert!(
         !res.errors.is_empty(),
@@ -151,13 +198,14 @@ async fn queue_query_maps_entries_from_mock_daemon() {
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0]["id"], "q-1");
     assert_eq!(entries[0]["taskId"], "task:T1");
-    assert_eq!(entries[0]["state"], "ready");
+    // `state` is a GraphQL enum — serialized SCREAMING_SNAKE_CASE.
+    assert_eq!(entries[0]["state"], "READY");
     assert_eq!(entries[0]["held"], false);
     assert_eq!(entries[0]["priority"], 3);
-    assert_eq!(entries[1]["state"], "held");
+    assert_eq!(entries[1]["state"], "HELD");
     assert_eq!(entries[1]["held"], true);
     assert_eq!(entries[1]["holdReason"], "manual");
-    assert_eq!(entries[2]["state"], "in-flight");
+    assert_eq!(entries[2]["state"], "IN_FLIGHT");
 }
 
 fn sample_event(seq: u64) -> SubjectChangedEvent {

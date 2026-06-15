@@ -3,22 +3,92 @@
 //! Wire shape: defers to `animus-control-protocol` types so the GraphQL
 //! schema and the JSON-RPC wire stay in lockstep (canonical contract).
 
-use animus_control_protocol::types::WorkflowEventsRequest;
-use async_graphql::{Context, Object, Result, SimpleObject, Subscription, ID};
+use animus_control_protocol::types::{
+    WorkflowCancelRequest, WorkflowEventsRequest, WorkflowExecuteRequest, WorkflowGetRequest,
+    WorkflowListRequest, WorkflowPauseRequest, WorkflowResumeRequest, WorkflowRunRequest,
+    WorkflowRunSummary, WorkflowStatus as WireStatus,
+};
+use async_graphql::{Context, Enum, Object, Result, SimpleObject, Subscription, ID};
 use futures_util::stream::{self, Stream};
 
 use super::client_from_ctx;
 
-/// Lean workflow projection mirroring the control-wire `Workflow` shape.
-#[derive(SimpleObject, Default)]
+/// Workflow lifecycle status. Mirrors
+/// [`animus_control_protocol::types::WorkflowStatus`].
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
+pub enum WorkflowStatus {
+    Pending,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl From<WireStatus> for WorkflowStatus {
+    fn from(s: WireStatus) -> Self {
+        match s {
+            WireStatus::Pending => WorkflowStatus::Pending,
+            WireStatus::Running => WorkflowStatus::Running,
+            WireStatus::Paused => WorkflowStatus::Paused,
+            WireStatus::Completed => WorkflowStatus::Completed,
+            WireStatus::Failed => WorkflowStatus::Failed,
+            WireStatus::Cancelled => WorkflowStatus::Cancelled,
+        }
+    }
+}
+
+impl From<WorkflowStatus> for WireStatus {
+    fn from(s: WorkflowStatus) -> Self {
+        match s {
+            WorkflowStatus::Pending => WireStatus::Pending,
+            WorkflowStatus::Running => WireStatus::Running,
+            WorkflowStatus::Paused => WireStatus::Paused,
+            WorkflowStatus::Completed => WireStatus::Completed,
+            WorkflowStatus::Failed => WireStatus::Failed,
+            WorkflowStatus::Cancelled => WireStatus::Cancelled,
+        }
+    }
+}
+
+/// A workflow run. Mirrors
+/// [`animus_control_protocol::types::WorkflowRunSummary`] plus the opaque
+/// `detail` blob from `WorkflowRun` (serialized as JSON when present).
+#[derive(SimpleObject)]
 pub struct Workflow {
     pub id: ID,
-    pub name: String,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub task_id: Option<String>,
-    pub current_phase: Option<String>,
+    /// Workflow definition name.
+    pub definition: String,
+    pub status: WorkflowStatus,
+    pub subject_id: Option<ID>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    /// Full run detail as a JSON string (phase history, decisions,
+    /// checkpoints). Only populated by `workflow`-by-id lookups.
+    pub detail: Option<String>,
+}
+
+impl From<WorkflowRunSummary> for Workflow {
+    fn from(s: WorkflowRunSummary) -> Self {
+        Workflow {
+            id: ID(s.id),
+            definition: s.definition,
+            status: s.status.into(),
+            subject_id: s.subject_id.map(|id| ID(id.as_str().to_string())),
+            started_at: s.started_at.to_rfc3339(),
+            finished_at: s.finished_at.map(|t| t.to_rfc3339()),
+            detail: None,
+        }
+    }
+}
+
+/// Result of starting a workflow. Mirrors
+/// [`animus_control_protocol::types::WorkflowRunStart`].
+#[derive(SimpleObject, Default)]
+pub struct WorkflowRunStart {
+    pub workflow_id: ID,
+    pub status: Option<WorkflowStatus>,
+    pub started_at: String,
 }
 
 #[derive(SimpleObject, Default)]
@@ -34,20 +104,36 @@ pub struct WorkflowQuery;
 
 #[Object]
 impl WorkflowQuery {
-    /// List workflows, optionally filtered by status.
-    async fn workflows(&self, ctx: &Context<'_>, status: Option<String>) -> Result<Vec<Workflow>> {
-        let _client = client_from_ctx(ctx).await?;
-        // TODO(v0.1.5): client.call("workflow.list", &{ status })
-        let _ = status;
-        Ok(Vec::new())
+    /// List workflow runs, optionally filtered by status.
+    async fn workflows(
+        &self,
+        ctx: &Context<'_>,
+        status: Option<WorkflowStatus>,
+    ) -> Result<Vec<Workflow>> {
+        let client = client_from_ctx(ctx).await?;
+        let request = WorkflowListRequest {
+            status: status.map(WireStatus::from),
+            cursor: None,
+            limit: None,
+        };
+        let response = client
+            .workflow_list(request)
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/list failed: {e}")))?;
+        Ok(response.runs.into_iter().map(Workflow::from).collect())
     }
 
-    /// Look up a single workflow by id.
-    async fn workflow(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Workflow>> {
-        let _client = client_from_ctx(ctx).await?;
-        // TODO(v0.1.5): client.call("workflow.get", &{ id })
-        let _ = id;
-        Ok(None)
+    /// Look up a single workflow run by id, including full run detail.
+    async fn workflow(&self, ctx: &Context<'_>, id: ID) -> Result<Workflow> {
+        let client = client_from_ctx(ctx).await?;
+        let run = client
+            .workflow_get(WorkflowGetRequest { id: id.to_string() })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/get failed: {e}")))?;
+        let detail = (!run.detail.is_null()).then(|| run.detail.to_string());
+        let mut wf = Workflow::from(run.summary);
+        wf.detail = detail;
+        Ok(wf)
     }
 }
 
@@ -56,33 +142,93 @@ pub struct WorkflowMutation;
 
 #[Object]
 impl WorkflowMutation {
+    /// Run a workflow for a subject/task.
     async fn run_workflow(
         &self,
         ctx: &Context<'_>,
         task_id: ID,
-        workflow: String,
-    ) -> Result<Workflow> {
-        let _client = client_from_ctx(ctx).await?;
-        let _ = (task_id, workflow);
-        // TODO(v0.1.5): client.call("workflow.run", ...)
-        Ok(Workflow::default())
+        definition: Option<String>,
+    ) -> Result<WorkflowRunStart> {
+        let client = client_from_ctx(ctx).await?;
+        let start = client
+            .workflow_run(WorkflowRunRequest {
+                task_id: task_id.to_string(),
+                definition,
+                params: Default::default(),
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/run failed: {e}")))?;
+        Ok(WorkflowRunStart {
+            workflow_id: ID(start.workflow_id),
+            status: Some(start.status.into()),
+            started_at: start.started_at.to_rfc3339(),
+        })
+    }
+
+    /// Execute a workflow definition directly, optionally bound to a subject.
+    async fn execute_workflow(
+        &self,
+        ctx: &Context<'_>,
+        definition: String,
+        subject_id: Option<ID>,
+    ) -> Result<WorkflowRunStart> {
+        let client = client_from_ctx(ctx).await?;
+        let start = client
+            .workflow_execute(WorkflowExecuteRequest {
+                definition,
+                params: Default::default(),
+                subject_id: subject_id
+                    .map(|id| animus_subject_protocol::SubjectId::new(id.to_string())),
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/execute failed: {e}")))?;
+        Ok(WorkflowRunStart {
+            workflow_id: ID(start.workflow_id),
+            status: Some(start.status.into()),
+            started_at: start.started_at.to_rfc3339(),
+        })
     }
 
     async fn pause_workflow(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-        let _client = client_from_ctx(ctx).await?;
-        let _ = id;
+        let client = client_from_ctx(ctx).await?;
+        client
+            .workflow_pause(WorkflowPauseRequest { id: id.to_string() })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/pause failed: {e}")))?;
         Ok(true)
     }
 
-    async fn resume_workflow(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-        let _client = client_from_ctx(ctx).await?;
-        let _ = id;
+    async fn resume_workflow(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        feedback: Option<String>,
+    ) -> Result<bool> {
+        let client = client_from_ctx(ctx).await?;
+        client
+            .workflow_resume(WorkflowResumeRequest {
+                id: id.to_string(),
+                feedback,
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/resume failed: {e}")))?;
         Ok(true)
     }
 
-    async fn cancel_workflow(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-        let _client = client_from_ctx(ctx).await?;
-        let _ = id;
+    async fn cancel_workflow(
+        &self,
+        ctx: &Context<'_>,
+        id: ID,
+        reason: Option<String>,
+    ) -> Result<bool> {
+        let client = client_from_ctx(ctx).await?;
+        client
+            .workflow_cancel(WorkflowCancelRequest {
+                id: id.to_string(),
+                reason,
+            })
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/cancel failed: {e}")))?;
         Ok(true)
     }
 }
@@ -92,8 +238,6 @@ pub struct WorkflowEventsSubscription;
 
 #[Subscription]
 impl WorkflowEventsSubscription {
-    /// Subscribers may hang on `recv` until the daemon-side `workflow/events`
-    /// handler ships — v0.1.10 only ships the client-side surface.
     async fn workflow_events(
         &self,
         ctx: &Context<'_>,
