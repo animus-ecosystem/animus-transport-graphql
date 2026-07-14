@@ -109,12 +109,20 @@ impl WorkflowQuery {
         &self,
         ctx: &Context<'_>,
         status: Option<WorkflowStatus>,
+        #[graphql(
+            desc = "Maximum number of runs to return (most recent first). Defaults to 200 to keep the list fast — an unbounded request makes the daemon materialize EVERY journaled run (O(n), seconds for thousands of runs). Clamped to 1000."
+        )]
+        limit: Option<i32>,
     ) -> Result<Vec<Workflow>> {
         let client = client_from_ctx(ctx).await?;
+        // A `None`/absent limit takes the daemon's unbounded list path (builds
+        // every run). Default to 200 and clamp so the list uses the bounded page
+        // path; callers can override up to 1000.
+        let effective_limit = limit.filter(|n| *n > 0).unwrap_or(200).min(1000) as u32;
         let request = WorkflowListRequest {
             status: status.map(WireStatus::from),
             cursor: None,
-            limit: None,
+            limit: Some(effective_limit),
         };
         let response = client
             .workflow_list(request)
