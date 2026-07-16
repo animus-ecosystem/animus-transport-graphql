@@ -1,6 +1,6 @@
 [package]
 name = "animus-transport-graphql"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "Elastic-2.0"
 description = "GraphQL transport plugin for Animus — exposes daemon control RPC at /graphql"
@@ -11,11 +11,11 @@ name = "animus-transport-graphql"
 path = "src/main.rs"
 
 [dependencies]
-animus-plugin-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
-animus-transport-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
-animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12", features = ["client"] }
-animus-plugin-runtime = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
-animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.12" }
+animus-plugin-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.14" }
+animus-transport-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.14" }
+animus-control-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.14", features = ["client"] }
+animus-plugin-runtime = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.14" }
+animus-subject-protocol = { git = "https://github.com/launchapp-dev/animus-protocol", tag = "v0.5.14" }
 
 async-graphql = { version = "7", features = ["chrono"] }
 async-graphql-axum = "7"

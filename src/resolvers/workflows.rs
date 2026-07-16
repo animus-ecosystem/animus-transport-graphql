@@ -82,6 +82,16 @@ impl From<WorkflowRunSummary> for Workflow {
     }
 }
 
+/// A page of workflow runs plus the total across all pages (for numbered
+/// pagination + a run-count header). Backs the `workflowsPage` query.
+#[derive(SimpleObject)]
+pub struct WorkflowPage {
+    /// Runs in this page (most recent first).
+    pub items: Vec<Workflow>,
+    /// Total matching runs across all pages (respecting the status/type filter).
+    pub total: i32,
+}
+
 /// Result of starting a workflow. Mirrors
 /// [`animus_control_protocol::types::WorkflowRunStart`].
 #[derive(SimpleObject, Default)]
@@ -123,12 +133,43 @@ impl WorkflowQuery {
             status: status.map(WireStatus::from),
             cursor: None,
             limit: Some(effective_limit),
+            workflow_ref: None,
         };
         let response = client
             .workflow_list(request)
             .await
             .map_err(|e| async_graphql::Error::new(format!("workflow/list failed: {e}")))?;
         Ok(response.runs.into_iter().map(Workflow::from).collect())
+    }
+
+    /// Paginated workflow list with a total count and an optional type filter,
+    /// for the numbered-pagination UI. `offset` is a plain row offset (page N =
+    /// N * pageSize); `total` in the result lets the client compute page count.
+    async fn workflows_page(
+        &self,
+        ctx: &Context<'_>,
+        status: Option<WorkflowStatus>,
+        #[graphql(desc = "Filter to a single workflow definition (the run 'type').")] workflow_ref: Option<String>,
+        #[graphql(desc = "Page size. Defaults to 50, clamped to 1000.")] limit: Option<i32>,
+        #[graphql(desc = "Row offset from the newest run. Defaults to 0.")] offset: Option<i32>,
+    ) -> Result<WorkflowPage> {
+        let client = client_from_ctx(ctx).await?;
+        let effective_limit = limit.filter(|n| *n > 0).unwrap_or(50).min(1000) as u32;
+        let effective_offset = offset.filter(|n| *n > 0).unwrap_or(0);
+        let request = WorkflowListRequest {
+            status: status.map(WireStatus::from),
+            cursor: (effective_offset > 0).then(|| effective_offset.to_string()),
+            limit: Some(effective_limit),
+            workflow_ref: workflow_ref.filter(|s| !s.trim().is_empty()),
+        };
+        let response = client
+            .workflow_list(request)
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("workflow/list failed: {e}")))?;
+        Ok(WorkflowPage {
+            items: response.runs.into_iter().map(Workflow::from).collect(),
+            total: response.total.unwrap_or(0) as i32,
+        })
     }
 
     /// Look up a single workflow run by id, including full run detail.
