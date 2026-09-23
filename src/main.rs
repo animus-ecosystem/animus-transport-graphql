@@ -20,6 +20,7 @@ async fn main() -> anyhow::Result<()> {
         name: env!("CARGO_PKG_NAME").into(),
         version: env!("CARGO_PKG_VERSION").into(),
         plugin_kind: PLUGIN_KIND_TRANSPORT_BACKEND.into(),
+        plugin_kinds: Vec::new(),
         description: Some(env!("CARGO_PKG_DESCRIPTION").into()),
     };
 

@@ -123,6 +123,7 @@ impl WorkflowQuery {
             status: status.map(WireStatus::from),
             cursor: None,
             limit: Some(effective_limit),
+            workflow_ref: None,
         };
         let response = client
             .workflow_list(request)
@@ -163,6 +164,7 @@ impl WorkflowMutation {
                 task_id: task_id.to_string(),
                 definition,
                 params: Default::default(),
+                actor: None,
             })
             .await
             .map_err(|e| async_graphql::Error::new(format!("workflow/run failed: {e}")))?;
@@ -187,6 +189,7 @@ impl WorkflowMutation {
                 params: Default::default(),
                 subject_id: subject_id
                     .map(|id| animus_subject_protocol::SubjectId::new(id.to_string())),
+                actor: None,
             })
             .await
             .map_err(|e| async_graphql::Error::new(format!("workflow/execute failed: {e}")))?;
