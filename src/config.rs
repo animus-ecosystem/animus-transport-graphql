@@ -18,6 +18,11 @@ pub struct GraphqlConfig {
     /// Enable the interactive GraphQL Playground on GET `/graphql`.
     #[serde(default = "default_playground_enabled")]
     pub playground_enabled: bool,
+    /// Host names accepted in `Host` / `Origin` besides the loopback ones
+    /// (see [`crate::loopback`]). Only needed when binding a non-loopback
+    /// address on purpose.
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
 }
 
 fn default_playground_enabled() -> bool {
@@ -36,12 +41,22 @@ impl GraphqlConfig {
             .ok()
             .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
             .unwrap_or(true);
+        let allowed_hosts = std::env::var("ANIMUS_TRANSPORT_ALLOWED_HOSTS")
+            .map(|v| {
+                v.split(',')
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             bind,
             control_socket_path,
             auth_token,
             playground_enabled,
+            allowed_hosts,
         })
     }
 }
@@ -53,6 +68,7 @@ impl Default for GraphqlConfig {
             control_socket_path: PathBuf::from("/tmp/animus.sock"),
             auth_token: None,
             playground_enabled: true,
+            allowed_hosts: Vec::new(),
         }
     }
 }

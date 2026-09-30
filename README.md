@@ -27,6 +27,26 @@ is mirrored faithfully into the GraphQL schema — the GraphQL types are a
 
 Default port: **8081** (HTTP transport occupies 8080).
 
+## Local-only requests
+
+The endpoint has no login by default, so every route answers only requests
+addressed to this machine:
+
+- `Host` must be `localhost`, a `127.x.x.x` address, or `[::1]` (any port).
+  This blocks DNS-rebinding pages.
+- `Origin`, when the browser sends one, must be one of those too. This
+  blocks other websites from calling the API or opening the subscription
+  socket. Requests without an `Origin` (curl, scripts, the web UI's
+  server-side proxy) are allowed.
+
+Anything else gets `403`. If you bind a non-loopback address on purpose, list
+the extra host names in `allowed_hosts` (the `transport/start` config key, or
+the comma-separated `ANIMUS_TRANSPORT_ALLOWED_HOSTS` for standalone runs) and
+set `auth_token`.
+
+`transport/start` binds the port before replying, so a port that is already
+in use fails the start instead of being reported as bound.
+
 ## Schema coverage
 
 **Queries:** `workflows`, `workflow(id)`, `queue`, `queueStats`, `plugin`,

@@ -1,6 +1,6 @@
 schema = "animus.plugin.v1"
 name = "animus-transport-graphql"
-version = "0.1.0"
+version = "0.2.4"
 plugin_kind = "transport_backend"
 description = "GraphQL transport plugin — exposes daemon control RPC at /graphql"
 
