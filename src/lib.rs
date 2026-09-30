@@ -8,6 +8,7 @@
 
 pub mod backend;
 pub mod config;
+pub mod loopback;
 pub mod resolvers;
 pub mod schema;
 pub mod server;

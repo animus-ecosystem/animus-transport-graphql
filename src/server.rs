@@ -7,6 +7,7 @@ use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
     http::{header, HeaderMap, StatusCode},
+    middleware,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -14,18 +15,24 @@ use axum::{
 
 use crate::{
     config::GraphqlConfig,
+    loopback,
     schema::{build_schema, AnimusSchema},
 };
 
 pub async fn run(config: GraphqlConfig) -> anyhow::Result<()> {
-    let bind = config.bind.clone();
+    let listener = tokio::net::TcpListener::bind(&config.bind).await?;
+    serve(listener, config).await
+}
+
+/// Serve on a listener the caller already bound, so bind errors surface to
+/// the caller (see `GraphqlTransportBackend::start`).
+pub async fn serve(listener: tokio::net::TcpListener, config: GraphqlConfig) -> anyhow::Result<()> {
     let cfg = Arc::new(config);
     let schema = build_schema(cfg.clone());
 
     let app = router(schema, cfg.clone());
 
-    let listener = tokio::net::TcpListener::bind(&bind).await?;
-    tracing::info!(addr = %bind, "graphql transport listening");
+    tracing::info!(addr = %listener.local_addr()?, "graphql transport listening");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -44,7 +51,8 @@ pub fn router(schema: AnimusSchema, cfg: Arc<GraphqlConfig>) -> Router {
         .route("/graphql/sdl", get(graphql_sdl_handler))
         .route("/healthz", get(healthz))
         .layer(Extension(schema))
-        .layer(Extension(cfg))
+        .layer(Extension(cfg.clone()))
+        .layer(middleware::from_fn_with_state(cfg, loopback::guard))
 }
 
 async fn graphql_handler(

@@ -48,10 +48,39 @@ impl TransportBackend for GraphqlTransportBackend {
                 .get("playground")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true),
+            allowed_hosts: config
+                .config
+                .get("allowed_hosts")
+                .and_then(|v| v.as_array())
+                .map(|hosts| {
+                    hosts
+                        .iter()
+                        .filter_map(|h| h.as_str())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         };
 
+        // Bind here rather than in the spawned task: the host reports the
+        // returned address as where the API lives, so a port that is already
+        // taken must fail `transport/start` instead of being reported as ours.
+        let listener = tokio::net::TcpListener::bind(&bind)
+            .await
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::AddrInUse => BackendError::AddressInUse(bind.clone()),
+                std::io::ErrorKind::PermissionDenied => {
+                    BackendError::PermissionDenied(bind.clone())
+                }
+                _ => BackendError::Other(anyhow::anyhow!("failed to bind {bind}: {e}")),
+            })?;
+        let bound_addr = listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| bind.clone());
+
         let task = tokio::spawn(async move {
-            if let Err(err) = server::run(cfg).await {
+            if let Err(err) = server::serve(listener, cfg).await {
                 tracing::error!(error = %err, "graphql transport server exited with error");
             }
         });
@@ -63,7 +92,7 @@ impl TransportBackend for GraphqlTransportBackend {
         *guard = Some(task);
 
         Ok(TransportInfo {
-            bound_addr: bind,
+            bound_addr,
             started_at: Utc::now(),
         })
     }
