@@ -8,7 +8,7 @@ use animus_transport_graphql::{
 };
 use animus_transport_protocol::{BackendError, TransportBackend, TransportConfig};
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderValue, Request, StatusCode};
 use tower::ServiceExt;
 
 fn app(cfg: GraphqlConfig) -> axum::Router {
@@ -69,6 +69,49 @@ async fn cross_site_origin_is_refused() {
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+async fn status_of(app: axum::Router, req: Request<Body>) -> StatusCode {
+    app.oneshot(req).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn request_without_host_is_refused() {
+    for (method, path) in [("GET", "/healthz"), ("POST", "/graphql")] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        let status = status_of(app(GraphqlConfig::default()), req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn unreadable_host_is_refused() {
+    for (method, path) in [("GET", "/healthz"), ("POST", "/graphql")] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", HeaderValue::from_bytes(b"127.0.0.1\xff").unwrap())
+            .body(Body::empty())
+            .unwrap();
+        let status = status_of(app(GraphqlConfig::default()), req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn local_uri_authority_without_host_is_served() {
+    // HTTP/2 sends the host as the URI authority, not a Host header.
+    let req = Request::builder()
+        .method("GET")
+        .uri("http://127.0.0.1:8081/healthz")
+        .body(Body::empty())
+        .unwrap();
+    let status = status_of(app(GraphqlConfig::default()), req).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]

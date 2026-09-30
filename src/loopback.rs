@@ -9,9 +9,10 @@
 //! - a DNS-rebinding page reaches `127.0.0.1` under its own host name, which
 //!   shows up in `Host`.
 //!
-//! [`guard`] rejects both with `403`: `Host` must name a loopback address, and
-//! `Origin`, when the browser sends one, must too. Requests without an
-//! `Origin` (curl, the CLI, the web UI's server-side proxy) are allowed.
+//! [`guard`] rejects both with `403`: `Host` must be present and name a
+//! loopback address, and `Origin`, when the browser sends one, must too.
+//! Requests without an `Origin` (curl, the CLI, the web UI's server-side
+//! proxy) are allowed.
 //! Extra host names can be allowed through `allowed_hosts` for deployments
 //! that bind a non-loopback address on purpose.
 
@@ -30,17 +31,18 @@ use crate::config::GraphqlConfig;
 pub async fn guard(State(cfg): State<Arc<GraphqlConfig>>, req: Request, next: Next) -> Response {
     let allowed = &cfg.allowed_hosts;
 
-    let host = req
-        .headers()
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string)
-        .or_else(|| req.uri().authority().map(|a| a.to_string()));
-    if let Some(host) = host {
-        if !host_allowed(host_name(&host), allowed) {
-            tracing::warn!(%host, "rejected request with a non-local Host");
-            return (StatusCode::FORBIDDEN, "forbidden: Host is not local").into_response();
-        }
+    // HTTP/2 carries the host in the URI authority instead of `Host`. A
+    // request with neither, or with an unreadable `Host`, is refused.
+    let host = match req.headers().get(header::HOST) {
+        Some(value) => value.to_str().ok().map(str::to_string),
+        None => req.uri().authority().map(|a| a.to_string()),
+    };
+    if !host
+        .as_deref()
+        .is_some_and(|h| host_allowed(host_name(h), allowed))
+    {
+        tracing::warn!(?host, "rejected request with a missing or non-local Host");
+        return (StatusCode::FORBIDDEN, "forbidden: Host is not local").into_response();
     }
 
     if let Some(origin) = req.headers().get(header::ORIGIN) {
